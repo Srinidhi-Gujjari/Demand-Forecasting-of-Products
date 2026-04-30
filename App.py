@@ -27,6 +27,9 @@ df_grouped["Product_lower"] = df_grouped["Product"].str.lower()
 st.title("Demand Forecasting of Products")
 
 product = st.selectbox("Product", sorted(products))
+
+year = st.number_input("Year", min_value=2000, max_value=2100, value=2023)
+
 month = st.number_input("Month (1-12)", 1, 12, 1)
 
 discount = st.radio("Discount", ["No", "Yes"])
@@ -34,7 +37,7 @@ discount = 1 if discount == "Yes" else 0
 
 
 # ---------------- PREDICT ----------------
-def predict(product, month, discount):
+def predict(product, year, month, discount):
 
     product = product.strip().lower()
 
@@ -46,6 +49,7 @@ def predict(product, month, discount):
     freq = data["Product_freq"].iloc[0]
 
     input_df = pd.DataFrame([{
+        "Year": year,  # 🔥 ADDED
         "Month": month,
         "Total_Cost": df_grouped["Total_Cost"].mean(),
         "Discount_Applied": discount,
@@ -56,8 +60,18 @@ def predict(product, month, discount):
 
     predicted = xgb.predict(input_df)[0]
 
-    current_row = data[data["Month"] == month]["Total_Items"]
-    current = current_row.values[0] if len(current_row) > 0 else None
+    # ---------------- CURRENT DEMAND ----------------
+    current_row = data[
+        (data["Year"] == year) &   # 🔥 ADDED
+        (data["Month"] == month)
+    ]["Total_Items"]
+
+    if len(current_row) > 0:
+        current = current_row.values[0]
+    else:
+        # fallback → monthly average
+        fallback = data[data["Month"] == month]["Total_Items"]
+        current = fallback.mean() if len(fallback) > 0 else None
 
     return predicted, current
 
@@ -65,17 +79,17 @@ def predict(product, month, discount):
 # ---------------- BUTTON ----------------
 if st.button("Predict Demand"):
 
-    predicted, current = predict(product, month, discount)
+    predicted, current = predict(product, year, month, discount)
 
     if predicted is None:
         st.error("Product not found")
 
     elif current is None:
-        st.warning("No historical data")
+        st.warning("No historical data available")
         st.write("Predicted:", round(predicted))
 
     else:
-        # ---------------- ROUND (MATCH IPYNB) ----------------
+        # ---------------- ROUND ----------------
         predicted = round(predicted)
         current = round(current)
 
@@ -91,7 +105,7 @@ if st.button("Predict Demand"):
 
         st.write("Change %:", round(percent, 2), "%")
 
-        # ---------------- CLEAN BAR CHART ----------------
+        # ---------------- CHART ----------------
         st.markdown("### 📊 Actual vs Predicted")
 
         labels = ["Current", "Predicted"]
@@ -101,7 +115,6 @@ if st.button("Predict Demand"):
 
         bars = ax.bar(labels, values)
 
-        # 🔥 keep chart clean (no big difference feel)
         ax.set_ylim(min(values) * 0.95, max(values) * 1.05)
 
         ax.set_ylabel("Demand")
@@ -113,6 +126,8 @@ if st.button("Predict Demand"):
                     str(height), ha='center', va='bottom')
 
         st.pyplot(fig)
+
+        # ---------------- TREND ----------------
         if change > 0:
             st.success(f"📈 Demand Increased by: {change} units")
         elif change < 0:
